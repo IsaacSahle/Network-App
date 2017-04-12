@@ -3,29 +3,21 @@ package com.example.android.networkmonitor;
 import android.content.Context;
 import android.net.DhcpInfo;
 import android.net.nsd.NsdManager;
-import android.net.nsd.NsdServiceInfo;
 import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.support.annotation.RequiresApi;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
-import android.util.Log;
 import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.TextView;
 
-import com.example.android.networkmonitor.utilities.NetworkUtils;
-
-import org.w3c.dom.Text;
-
 import java.io.IOException;
 import java.net.InetAddress;
-import java.net.URL;
 import java.net.UnknownHostException;
-
-import static android.content.ContentValues.TAG;
+import java.util.ArrayList;
 
 @RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN)
 public class MainActivity extends AppCompatActivity {
@@ -59,15 +51,10 @@ public class MainActivity extends AppCompatActivity {
         return super.onOptionsItemSelected(item);
     }
 
-    protected class NetworkScan extends AsyncTask<String,Void,String>{
+    protected class NetworkScan extends AsyncTask<String,Void,ArrayList<Integer>>{
 
-        private String   s_dns1 ;
-        private String   s_dns2;
-        private String   s_gateway;
-        private String   s_ipAddress;
-        private String   s_leaseDuration;
-        private String   s_netmask;
-        private String   s_serverAddress;
+        private int networkBits;
+        private int hostBits;
         private Context mContext;
         TextView info;
         DhcpInfo d;
@@ -83,33 +70,56 @@ public class MainActivity extends AppCompatActivity {
         @Override
         protected void onPreExecute(){
            super.onPreExecute();
-            wifii = (WifiManager) mContext.getSystemService(Context.WIFI_SERVICE);
-            //boolean check = wifii.setWifiEnabled(true);
-            d = wifii.getDhcpInfo();
-
-            s_dns1 = "DNS 1: " + String.valueOf(d.dns1);
-            s_dns2 = "DNS 2: " + String.valueOf(d.dns2);
-            s_gateway = "Default Gateway: " + String.valueOf(d.gateway);
-            s_ipAddress = "IP Address: " + String.valueOf(d.ipAddress);
-            s_leaseDuration = "Lease Time: " + String.valueOf(d.leaseDuration);
-            s_netmask = "Subnet Mask: " + String.valueOf(d.netmask);
-            s_serverAddress = "Server IP: " + String.valueOf(d.serverAddress);
         }
 
         @Override
-        protected String doInBackground(String... params) {
+        protected ArrayList<Integer> doInBackground(String... params) {
             //Inefficient: MultiThread
+            //check if device is connected to wifi..
+            //determine total range of IP addresses to scan
+            wifii = (WifiManager) mContext.getSystemService(Context.WIFI_SERVICE);
+            //boolean check = wifii.setWifiEnabled(true);
+            d = wifii.getDhcpInfo();
+            networkBits = 0;
+            hostBits = 0;
+            String mask = Integer.toBinaryString((d.netmask & 0xFF)) + Integer.toBinaryString((d.netmask >> 8 ) & 0xFF) + Integer.toBinaryString((d.netmask >> 16) & 0xFF) + Integer.toBinaryString((d.netmask >> 24) & 0xFF);
+            int length = mask.length();
+            //pad zeros
+            while(length < 32){
+                mask += "0";
+                length++;
+            }
+
+            int i = 0;
+            while(i < length && mask.charAt(i) != '0'){
+                networkBits++;
+                i++;
+            }
+
+            hostBits = length - networkBits;
+
             String connections = "";
-            InetAddress host;
+            InetAddress host, networkAddress;
             try
             {
                 host = InetAddress.getByName(intToIp(d.ipAddress));
-                byte[] ip = host.getAddress();
+                //perform logical and with subnet mask to determine first subnet address
+                int startingAddr = d.ipAddress & d.netmask;
+                int numBytesReversed = Integer.reverseBytes(startingAddr);
+                String ipc = intToIp(startingAddr);
+                String ipx = intToIp(numBytesReversed);
+                networkAddress = InetAddress.getByName(intToIp(startingAddr));
+                byte ip [] = host.getAddress();
+                byte firstSubnetAddress [] = networkAddress.getAddress();
 
-                for(int i = 1; i <= 254; i++)
-                {
-                    ip[3] = (byte) i;
-                    InetAddress address = InetAddress.getByAddress(ip);
+                //number of hosts minus two reserved IP
+                int hosts = ((int) Math.pow(2,hostBits)) - 2;
+                int reversed;
+                for (i = 1; i <= hosts;i++){
+                    int addr = numBytesReversed ^ i;
+                    //String temp = intToIp(addr);
+                    InetAddress address = InetAddress.getByName(intToIp(Integer.reverseBytes(addr)));
+
                     if(address.isReachable(500))
                     {
                         System.out.println(address + " machine is turned on and can be pinged");
@@ -121,6 +131,7 @@ public class MainActivity extends AppCompatActivity {
                     }
 
                 }
+
             }
             catch(UnknownHostException e1)
             {
@@ -131,7 +142,7 @@ public class MainActivity extends AppCompatActivity {
                 e.printStackTrace();
             }
             System.out.println(connections);
-            return "";
+            return null;
         }
 
         @Override
@@ -140,7 +151,35 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        protected void onPostExecute(String results) {
+        protected void onPostExecute(ArrayList<Integer> results) {
+            //mNsdManager.stopServiceDiscovery(mDiscoveryListener);
+            //new Ping().execute();
+        }
+
+    }
+
+
+
+    protected class Ping extends AsyncTask<Void,Void,Void>{
+
+
+        @Override
+        protected void onPreExecute(){
+            super.onPreExecute();
+        }
+
+        @Override
+        protected Void doInBackground(Void... params){
+            return null;
+        }
+
+        @Override
+        protected void onProgressUpdate(Void... params) {
+            //will not be used, here for learning purposes
+        }
+
+        @Override
+        protected void onPostExecute(Void param) {
             //mNsdManager.stopServiceDiscovery(mDiscoveryListener);
         }
 
