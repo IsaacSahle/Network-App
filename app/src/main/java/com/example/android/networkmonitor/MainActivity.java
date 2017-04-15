@@ -6,24 +6,24 @@ import android.net.nsd.NsdManager;
 import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Build;
-import android.support.annotation.RequiresApi;
 import android.support.v7.app.AppCompatActivity;
 import android.os.Bundle;
 import android.view.Menu;
 import android.view.MenuItem;
-import android.view.View;
 import android.widget.TextView;
+
 
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
 
-@RequiresApi(api = Build.VERSION_CODES.JELLY_BEAN)
+
 public class MainActivity extends AppCompatActivity {
     //Scan text view
     private TextView mScanView;
     private NsdManager mDiscoveryListener;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -42,17 +42,15 @@ public class MainActivity extends AppCompatActivity {
         int itemThatWasClickedId = item.getItemId();
         if (itemThatWasClickedId == R.id.action_search) {
             //do something when clicked
-            mScanView.setVisibility(View.INVISIBLE);
-            NetworkScan myScan = new NetworkScan();
-            myScan.mContext = this;
-            myScan.execute();
+            mScanView.setText("");
+            new NetworkScan(this).execute();
             return true;
         }
         return super.onOptionsItemSelected(item);
     }
 
     protected class NetworkScan extends AsyncTask<String,Void,ArrayList<Integer>>{
-
+        private static final int NUM_THREADS = 120;
         private int networkBits;
         private int hostBits;
         private Context mContext;
@@ -60,11 +58,8 @@ public class MainActivity extends AppCompatActivity {
         DhcpInfo d;
         WifiManager wifii;
 
-        public String intToIp(int i) {
-            return (i & 0xFF) + "." +
-                    ((i >> 8 ) & 0xFF) + "." +
-                    ((i >> 16) & 0xFF) + "." +
-                    ((i >> 24) & 0xFF);
+        public NetworkScan(Context c){
+            mContext = c;
         }
 
         @Override
@@ -74,11 +69,8 @@ public class MainActivity extends AppCompatActivity {
 
         @Override
         protected ArrayList<Integer> doInBackground(String... params) {
-            //Inefficient: MultiThread
-            //check if device is connected to wifi..
             //determine total range of IP addresses to scan
             wifii = (WifiManager) mContext.getSystemService(Context.WIFI_SERVICE);
-            //boolean check = wifii.setWifiEnabled(true);
             d = wifii.getDhcpInfo();
             networkBits = 0;
             hostBits = 0;
@@ -98,70 +90,56 @@ public class MainActivity extends AppCompatActivity {
 
             hostBits = length - networkBits;
 
-            String connections = "";
-            InetAddress host, networkAddress;
-            try
-            {
-                host = InetAddress.getByName(intToIp(d.ipAddress));
-                //perform logical and with subnet mask to determine first subnet address
-                int startingAddr = d.ipAddress & d.netmask;
-                int numBytesReversed = Integer.reverseBytes(startingAddr);
-                String ipc = intToIp(startingAddr);
-                String ipx = intToIp(numBytesReversed);
-                networkAddress = InetAddress.getByName(intToIp(startingAddr));
-                byte ip [] = host.getAddress();
-                byte firstSubnetAddress [] = networkAddress.getAddress();
-
-                //number of hosts minus two reserved IP
-                int hosts = ((int) Math.pow(2,hostBits)) - 2;
-                int reversed;
-                for (i = 1; i <= hosts;i++){
-                    int addr = numBytesReversed ^ i;
-                    //String temp = intToIp(addr);
-                    InetAddress address = InetAddress.getByName(intToIp(Integer.reverseBytes(addr)));
-
-                    if(address.isReachable(500))
-                    {
-                        System.out.println(address + " machine is turned on and can be pinged");
-                        connections+= address+"\n";
-                    }
-                    else if(!address.getHostAddress().equals(address.getHostName()))
-                    {
-                        System.out.println(address + " machine is known in a DNS lookup");
-                    }
-
-                }
-
-            }
-            catch(UnknownHostException e1)
-            {
-                e1.printStackTrace();
-            }
-            catch(IOException e)
-            {
-                e.printStackTrace();
-            }
-            System.out.println(connections);
-            return null;
-        }
-
-        @Override
-        protected void onProgressUpdate(Void... nothing) {
-         //will not be used, here for learning purposes
+            Integer startingAddr = new Integer(d.ipAddress & d.netmask);
+            Integer hosts = ((int) Math.pow(2,hostBits)) - 2;
+            ArrayList<Integer> list = new ArrayList<Integer>();
+            list.add(startingAddr);
+            list.add(hosts);
+            return list;
         }
 
         @Override
         protected void onPostExecute(ArrayList<Integer> results) {
-            //mNsdManager.stopServiceDiscovery(mDiscoveryListener);
-            //new Ping().execute();
+                int numBytesReversed = Integer.reverseBytes(results.get(0));
+                int numHosts = results.get(1);
+
+                int itemsPerThread = (numHosts / NUM_THREADS);
+                int remainingItems = (numHosts % NUM_THREADS);
+                int start = 1;
+
+                for (int i = 1; i <= NUM_THREADS; i++)
+                {
+                    int extra = (i <= remainingItems) ? 1:0;
+                    int amount = (itemsPerThread + extra);
+
+                    if(amount == 0)
+                        break;
+
+                    if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB){
+                        new Ping(mContext).executeOnExecutor(THREAD_POOL_EXECUTOR,numBytesReversed,start,amount);
+                    }else{
+                        new Ping(mContext).execute(numBytesReversed,start,amount);
+                    }
+                    start += amount;
+                }
         }
 
     }
 
+    protected class Ping extends AsyncTask<Integer,String,Void>{
 
+        private Context mContext;
 
-    protected class Ping extends AsyncTask<Void,Void,Void>{
+        public Ping(Context c){
+            mContext = c;
+        }
 
+        public String intToIp(int i) {
+            return (i & 0xFF) + "." +
+                    ((i >> 8 ) & 0xFF) + "." +
+                    ((i >> 16) & 0xFF) + "." +
+                    ((i >> 24) & 0xFF);
+        }
 
         @Override
         protected void onPreExecute(){
@@ -169,21 +147,31 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @Override
-        protected Void doInBackground(Void... params){
+        protected Void doInBackground(Integer... param){
+
+            for (int i = param[1]; i <= (param[1] + param[2]); i++){
+                try{
+                    int addr = param[0] ^ i;
+                    InetAddress address = InetAddress.getByName(intToIp(Integer.reverseBytes(addr)));
+                        if(address.isReachable(200)){
+                            publishProgress(address.getHostName() + ":" + address.getHostAddress());
+                        }
+                }catch (UnknownHostException e1){
+                    e1.printStackTrace();
+                }catch (IOException e2){
+                    e2.printStackTrace();
+                }
+            }
+
             return null;
         }
 
         @Override
-        protected void onProgressUpdate(Void... params) {
-            //will not be used, here for learning purposes
+        protected void onProgressUpdate(String... progress) {
+            mScanView.append(progress[0] + "\n\n\n");
         }
 
         @Override
-        protected void onPostExecute(Void param) {
-            //mNsdManager.stopServiceDiscovery(mDiscoveryListener);
-        }
-
+        protected void onPostExecute(Void results) {}
     }
-
-
 }

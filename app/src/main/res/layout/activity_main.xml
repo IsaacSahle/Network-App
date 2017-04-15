@@ -33,7 +33,7 @@
             android:layout_height="wrap_content"
             android:padding="16dp"
             android:text="@string/error_message"
-            android:visibility="invisible" />
+            android:visibility="gone" />
     </FrameLayout>
 
 </LinearLayout>
