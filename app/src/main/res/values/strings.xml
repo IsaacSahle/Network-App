@@ -3,4 +3,5 @@
     <string name="scan">Scan</string>
     <string name="error_message">No Results</string>
     <string name="begin_scanning">Begin Scanning!</string>
+    <string name="wifi_disabled">Device offline</string>
 </resources>
